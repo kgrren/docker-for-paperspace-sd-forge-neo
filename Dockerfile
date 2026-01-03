@@ -41,28 +41,27 @@ RUN set -ex; \
     tar -xj -C /usr/local/bin/ --strip-components=1 -f /tmp/micromamba.tar.bz2 bin/micromamba; \
     rm /tmp/micromamba.tar.bz2; \
     \
-    # 1. Root Prefix ディレクトリ作成
+    # 1. 管理用ディレクトリ作成
     mkdir -p $MAMBA_ROOT_PREFIX; \
-    \
-    # 2. shell init を実行（-pを使わず環境変数を利用）
     export MAMBA_ROOT_PREFIX=$MAMBA_ROOT_PREFIX; \
+    \
+    # 2. shell init
     micromamba shell init -s bash; \
     \
-    # 3. Python 3.11 環境作成
-    # -p ではなく -n (name) または --prefix を使用しますが、
-    # ここでは $MAMBA_ROOT_PREFIX 自体をベース環境とするために --prefix を使用します
-    micromamba create -y --prefix $MAMBA_ROOT_PREFIX -c conda-forge python=3.11; \
+    # 3. Python 3.11 環境を名前を付けて作成（envs/pyenv に入る）
+    micromamba create -y -n pyenv -c conda-forge python=3.11; \
     micromamba clean -a -y
 
 # ------------------------------
 # Install Core Python Libs & Jupyter
 # ------------------------------
 # Pytorch 2.4.1 (matching Forge Neo recommendation)
-RUN micromamba run -p $MAMBA_ROOT_PREFIX pip install \
+# 今後の pip install は環境名 "pyenv" を指定して実行する
+RUN micromamba run -n pyenv pip install \
     torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
     --index-url https://download.pytorch.org/whl/cu124
 
-RUN micromamba run -p $MAMBA_ROOT_PREFIX pip install \
+RUN micromamba run -n pyenv pip install \
     jupyterlab notebook jupyter-server-proxy \
     xformers==0.0.28.post1 \
     ninja
