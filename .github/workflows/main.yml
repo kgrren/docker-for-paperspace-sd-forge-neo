@@ -1,0 +1,91 @@
+name: Build and Push to Docker Hub
+
+on:
+  release:
+    types: [published, prereleased]
+  # 手動で実行できるようにボタンを追加（テスト用に便利です）
+  workflow_dispatch:
+
+# 環境変数としてイメージ名を指定（あなたのリポジトリ名に合わせて変更してください）
+# 例: mochidroppot/gradient-forge-neo
+env:
+  IMAGE_NAME: gradient-forge-neo
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    # Docker Hubへのプッシュにはpackages: write権限は不要ですが、
+    # GitHubのAPIを叩くためcontents: readは残します
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ディスク容量確保（これがないとCUDA入りイメージは容量不足で失敗します）
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 【変更点1】Docker Hubへのログイン
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 【変更点2】メタデータの生成（Docker Hub用）
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # ここで Docker Hub のイメージ名を指定
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            # 手動実行時は 'manual' タグを付ける設定
+            type=raw,value=manual,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      # 【変更点3】latestタグの特別ルール
+      # プレリリースではない正式リリースの時だけ latest を更新する
+      - name: Extract metadata (latest)
+        if: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+        id: meta_latest
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.meta_latest.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # ビルド高速化のためのキャッシュ設定
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Clean up Docker artifacts
+        if: always()
+        run: |
+          docker system prune -af --volumes
+          echo "ビルド後の利用可能なディスク容量："
+          df -h
