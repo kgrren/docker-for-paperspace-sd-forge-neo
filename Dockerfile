@@ -38,15 +38,20 @@ RUN set -ex; \
     if [ "$arch" = "x86_64" ]; then arch="linux-64"; fi; \
     if [ "$arch" = "aarch64" ]; then arch="linux-aarch64"; fi; \
     curl -Ls "https://micro.mamba.pm/api/micromamba/${arch}/latest" -o /tmp/micromamba.tar.bz2; \
-    # 展開先を /usr/local/bin に指定
     tar -xj -C /usr/local/bin/ --strip-components=1 -f /tmp/micromamba.tar.bz2 bin/micromamba; \
     rm /tmp/micromamba.tar.bz2; \
     \
-    # 環境構築
+    # 1. Root Prefix ディレクトリ作成
     mkdir -p $MAMBA_ROOT_PREFIX; \
-    micromamba shell init -s bash -p $MAMBA_ROOT_PREFIX; \
-    # python 3.11 環境作成 (conda-forge チャンネルを明示)
-    micromamba create -y -p $MAMBA_ROOT_PREFIX -c conda-forge python=3.11; \
+    \
+    # 2. shell init を実行（-pを使わず環境変数を利用）
+    export MAMBA_ROOT_PREFIX=$MAMBA_ROOT_PREFIX; \
+    micromamba shell init -s bash; \
+    \
+    # 3. Python 3.11 環境作成
+    # -p ではなく -n (name) または --prefix を使用しますが、
+    # ここでは $MAMBA_ROOT_PREFIX 自体をベース環境とするために --prefix を使用します
+    micromamba create -y --prefix $MAMBA_ROOT_PREFIX -c conda-forge python=3.11; \
     micromamba clean -a -y
 
 # ------------------------------
