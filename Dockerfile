@@ -26,17 +26,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 libgoogle-perftools4 \
     build-essential python3-dev \
     ffmpeg \
+    bzip2 \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
 # Install Micromamba & Python 3.11
 # ------------------------------
-RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj bin/micromamba \
-    && mv bin/micromamba /usr/local/bin/ \
-    && mkdir -p $MAMBA_ROOT_PREFIX \
-    && micromamba shell init -s bash -p $MAMBA_ROOT_PREFIX \
-    && micromamba create -y -p $MAMBA_ROOT_PREFIX python=3.11 \
-    && micromamba clean -a -y
+RUN set -ex; \
+    arch=$(uname -m); \
+    if [ "$arch" = "x86_64" ]; then arch="linux-64"; fi; \
+    if [ "$arch" = "aarch64" ]; then arch="linux-aarch64"; fi; \
+    curl -Ls "https://micro.mamba.pm/api/micromamba/${arch}/latest" -o /tmp/micromamba.tar.bz2; \
+    # 展開先を /usr/local/bin に指定
+    tar -xj -C /usr/local/bin/ --strip-components=1 -f /tmp/micromamba.tar.bz2 bin/micromamba; \
+    rm /tmp/micromamba.tar.bz2; \
+    \
+    # 環境構築
+    mkdir -p $MAMBA_ROOT_PREFIX; \
+    micromamba shell init -s bash -p $MAMBA_ROOT_PREFIX; \
+    # python 3.11 環境作成 (conda-forge チャンネルを明示)
+    micromamba create -y -p $MAMBA_ROOT_PREFIX -c conda-forge python=3.11; \
+    micromamba clean -a -y
 
 # ------------------------------
 # Install Core Python Libs & Jupyter
