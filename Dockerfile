@@ -17,7 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     FORCE_CUDA="1"
 
 # ------------------------------
-# 2. System Packages (FFmpeg インストール)
+# 2. System Packages
 # ------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget curl git nano vim unzip zip \
@@ -42,23 +42,27 @@ RUN set -ex; \
     micromamba clean -a -y
 
 # ------------------------------
-# 4. Pre-install Build Tools (Error Fix for PyYAML/Cython)
+# 4. Fix Build Environment & Install Dependencies
 # ------------------------------
-# PyYAML等のビルドエラーを防ぐため、先にビルド基盤を最新にします
-RUN micromamba run -n pyenv pip install --no-cache-dir -U pip setuptools wheel Cython
+# エラーの元となる PyYAML のビルド失敗を避けるため、
+# 1. 互換性のあるバージョンの PyYAML を先にバイナリ(Wheel)で入れます。
+# 2. gradient パッケージが要求する古い setuptools/Cython の不整合を回避します。
+RUN micromamba run -n pyenv pip install --no-cache-dir "PyYAML>=6.0.1" Cython
 
-# ------------------------------
-# 5. Install Core ML Libs & Paperspace Agent
-# ------------------------------
-RUN micromamba run -n pyenv pip install --no-cache-dir \
-    torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
-    --index-url https://download.pytorch.org/whl/cu124
-
+# 次に gradient や jupyter 関連をインストールします。
+# すでに PyYAML が入っているので、gradient のインストール時のビルドエラーが回避されます。
 RUN micromamba run -n pyenv pip install --no-cache-dir \
     jupyterlab==3.6.5 notebook jupyter-server-proxy \
     gradient==2.0.6 \
     xformers==0.0.28.post1 \
     ninja
+
+# ------------------------------
+# 5. Core ML Libs (PyTorch 2.4.1)
+# ------------------------------
+RUN micromamba run -n pyenv pip install --no-cache-dir \
+    torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
+    --index-url https://download.pytorch.org/whl/cu124
 
 # ------------------------------
 # 6. Optimization & Nunchaku (SVDQ)
@@ -83,7 +87,6 @@ COPY scripts/entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN mkdir -p /tmp/sd/models
 
-# Paperspace IDE & WebUI Ports
 EXPOSE 8888 7860
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
