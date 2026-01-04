@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Paperspace Notebook front-proxy can rewrite headers/hosts.
-# These flags prevent "works in terminal but not in UI" style issues.
-JUPYTER_PORT="${JUPYTER_PORT:-8888}"
-ROOT_DIR="${JUPYTER_ROOT_DIR:-/notebooks}"
-
-exec python3.11 -m jupyter lab \
-  --ip=0.0.0.0 \
-  --port="${JUPYTER_PORT}" \
-  --no-browser \
-  --ServerApp.root_dir="${ROOT_DIR}" \
-  --ServerApp.allow_remote_access=True \
-  --ServerApp.trust_xheaders=True \
-  --ServerApp.disable_check_xsrf=True \
+# JupyterLab must listen on 0.0.0.0:8888 for Paperspace
+exec jupyter lab \
+  --ServerApp.ip=0.0.0.0 \
+  --ServerApp.port=8888 \
+  --ServerApp.allow_origin=* \
+  --ServerApp.open_browser=false \
+  --ServerApp.allow_root=true \
+  --ServerApp.root_dir=/notebooks \
   --ServerApp.token='' \
   --ServerApp.password=''
