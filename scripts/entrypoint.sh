@@ -1,32 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Paperspace notebooks often mount /notebooks with host-side ownership.
-# If we are root, fix ownership to NB_UID/NB_GID. If not, print helpful diagnostics.
+# Paperspace may start the container as an arbitrary UID/GID.
+# We want /notebooks to be writable and run Jupyter/Forge as a non-root user
+# matching the mounted volume ownership when possible.
+
+NB_USER="${NB_USER:-gradient}"
 NB_UID="${NB_UID:-1000}"
 NB_GID="${NB_GID:-1000}"
 
-fix_perms() {
-  local dir="$1"
-  if [ ! -d "$dir" ]; then return 0; fi
+NOTEBOOK_DIR="${NOTEBOOK_DIR:-/notebooks}"
 
-  if [ "$(id -u)" = "0" ]; then
-    echo "[entrypoint] fixing permissions: ${dir} -> ${NB_UID}:${NB_GID}"
-    chown -R "${NB_UID}:${NB_GID}" "${dir}" || true
-    chmod -R u+rwX,g+rwX "${dir}" || true
-  else
-    echo "[entrypoint] running as uid=$(id -u) gid=$(id -g) (not root)."
-    echo "[entrypoint] if you cannot write to ${dir}, its ownership is likely mismatched."
-    ls -ld "${dir}" || true
+# If /notebooks exists, prefer its ownership
+if [ -d "${NOTEBOOK_DIR}" ]; then
+  VOL_UID="$(stat -c '%u' "${NOTEBOOK_DIR}" || echo "${NB_UID}")"
+  VOL_GID="$(stat -c '%g' "${NOTEBOOK_DIR}" || echo "${NB_GID}")"
+  NB_UID="${VOL_UID}"
+  NB_GID="${VOL_GID}"
+fi
+
+ensure_user() {
+  if ! getent group "${NB_GID}" >/dev/null 2>&1; then
+    groupadd -g "${NB_GID}" "${NB_USER}" >/dev/null 2>&1 || true
+  fi
+  if ! id -u "${NB_USER}" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -u "${NB_UID}" -g "${NB_GID}" "${NB_USER}" >/dev/null 2>&1 || true
   fi
 }
 
-fix_perms /notebooks
-fix_perms /workspace
-fix_perms /opt/forge
+fix_perms() {
+  local d="$1"
+  [ -d "$d" ] || return 0
+  # If we're root, try to make it writable by NB_UID/NB_GID.
+  if [ "$(id -u)" = "0" ]; then
+    chown -R "${NB_UID}:${NB_GID}" "$d" || true
+    chmod -R u+rwX,g+rwX "$d" || true
+  fi
+}
 
-# Ensure HOME is set (some notebook launchers override it)
-export HOME="${HOME:-/home/${NB_USER:-mambauser}}"
-
-# Execute passed command inside the conda env
-exec micromamba run -n pyenv "$@"
+if [ "$(id -u)" = "0" ]; then
+  ensure_user
+  fix_perms "${NOTEBOOK_DIR}"
+  fix_perms "/workspace"
+  # Drop privileges
+  exec gosu "${NB_USER}" "$@"
+else
+  # Already non-root; just run
+  exec "$@"
+fi
