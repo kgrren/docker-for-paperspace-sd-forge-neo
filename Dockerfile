@@ -1,6 +1,3 @@
-# ----------------------------------------------------------------------------
-# Base Image: CUDA 12.4.1 for Paperspace
-# ----------------------------------------------------------------------------
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 
 LABEL maintainer="kgrren"
@@ -11,11 +8,12 @@ LABEL maintainer="kgrren"
 ENV DEBIAN_FRONTEND=noninteractive \
     SHELL=/bin/bash \
     MAMBA_ROOT_PREFIX=/opt/conda \
-    # パス設定：pyenv環境を最優先に。これでデフォルトコマンドがこの環境を叩くようになります
-    PATH=/opt/conda/envs/pyenv/bin:/opt/conda/bin:$PATH \
+    # pyenvのbinを先頭に持ってくることで、デフォルトの 'python' や 'jupyter' がこれを指すようにする
+    PATH=/opt/conda/envs/pyenv/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     CUDA_HOME=/usr/local/cuda \
     TORCH_CUDA_ARCH_LIST="8.6" \
-    FORCE_CUDA="1"
+    FORCE_CUDA="1" \
+    PIP_NO_CACHE_DIR=1
 
 # ------------------------------
 # 2. System Packages
@@ -28,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
-# 3. Micromamba & Python 3.11
+# 3. Micromamba Setup (参考コードの構造を反映)
 # ------------------------------
 RUN set -ex; \
     arch=$(uname -m); \
@@ -43,7 +41,7 @@ RUN set -ex; \
     micromamba clean -a -y
 
 # ------------------------------
-# 4. Install Core ML Libs (pyenv環境へ)
+# 4. Python Environment (pyenv)
 # ------------------------------
 RUN micromamba run -n pyenv pip install \
     torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
@@ -60,24 +58,27 @@ RUN micromamba run -n pyenv pip install \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
+# 依存関係として必要なパッケージ
 RUN micromamba run -n pyenv pip install flash-attn --no-build-isolation
 RUN micromamba run -n pyenv pip install sageattention
 
 # ------------------------------
-# 6. Final Setup
+# 6. Configuration & Permissions
 # ------------------------------
 COPY jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
 
+# Paperspaceが使うディレクトリを事前に作成し権限を付与
+RUN mkdir -p /notebooks
 WORKDIR /notebooks
+
 COPY scripts/entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # ポート開放
 EXPOSE 8888
 
-# 参考コードに合わせた Entrypoint 形式
+# 参考コード同様、Entrypointを確実に実行
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Paperspaceのデフォルト設定に干渉しないよう、CMDは最小限にする
-# これにより、Paperspace側で指定されるデフォルトコマンドが正しく引き継がれます
-CMD ["jupyter", "lab", "--allow-root", "--ip=0.0.0.0", "--port=8888", "--no-browser"]
+# Paperspaceのデフォルト設定。これがEntrypointの "$@" に渡される
+CMD ["jupyter", "lab", "--allow-root", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--ServerApp.token=", "--ServerApp.password=", "--ServerApp.allow_origin='*'"]
