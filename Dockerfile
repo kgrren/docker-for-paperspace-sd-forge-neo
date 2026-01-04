@@ -11,20 +11,20 @@ LABEL maintainer="kgrren"
 ENV DEBIAN_FRONTEND=noninteractive \
     SHELL=/bin/bash \
     MAMBA_ROOT_PREFIX=/opt/conda \
-    # パス設定：pyenv環境を最優先。これでデフォルトコマンドがこの環境を叩くようになります
     PATH=/opt/conda/envs/pyenv/bin:/opt/conda/bin:$PATH \
     CUDA_HOME=/usr/local/cuda \
     TORCH_CUDA_ARCH_LIST="8.6" \
     FORCE_CUDA="1"
 
 # ------------------------------
-# 2. System Packages (FFmpeg等、Forge Neoに必要なツールを含む)
+# 2. System Packages (FFmpeg インストール)
 # ------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget curl git nano vim unzip zip \
     libgl1 libglib2.0-0 libgoogle-perftools4 \
     build-essential python3-dev \
-    ffmpeg bzip2 ca-certificates \
+    ffmpeg \
+    bzip2 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
@@ -33,7 +33,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN set -ex; \
     arch=$(uname -m); \
     if [ "$arch" = "x86_64" ]; then arch="linux-64"; fi; \
-    if [ "$arch" = "aarch64" ]; then arch="linux-aarch64"; fi; \
     curl -Ls "https://micro.mamba.pm/api/micromamba/${arch}/latest" -o /tmp/micromamba.tar.bz2; \
     tar -xj -C /usr/local/bin/ --strip-components=1 -f /tmp/micromamba.tar.bz2 bin/micromamba; \
     rm /tmp/micromamba.tar.bz2; \
@@ -43,33 +42,36 @@ RUN set -ex; \
     micromamba clean -a -y
 
 # ------------------------------
-# 4. Install Core ML Libs & Paperspace Agent
+# 4. Pre-install Build Tools (Error Fix for PyYAML/Cython)
 # ------------------------------
-# Paperspaceコンソールでの操作を有効にするため 'gradient' を追加
-RUN micromamba run -n pyenv pip install \
+# PyYAML等のビルドエラーを防ぐため、先にビルド基盤を最新にします
+RUN micromamba run -n pyenv pip install --no-cache-dir -U pip setuptools wheel Cython
+
+# ------------------------------
+# 5. Install Core ML Libs & Paperspace Agent
+# ------------------------------
+RUN micromamba run -n pyenv pip install --no-cache-dir \
     torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
     --index-url https://download.pytorch.org/whl/cu124
 
-RUN micromamba run -n pyenv pip install \
+RUN micromamba run -n pyenv pip install --no-cache-dir \
     jupyterlab==3.6.5 notebook jupyter-server-proxy \
     gradient==2.0.6 \
     xformers==0.0.28.post1 \
     ninja
 
 # ------------------------------
-# 5. Build Tools & Optimization (A4000用)
+# 6. Optimization & Nunchaku (SVDQ)
 # ------------------------------
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
-RUN micromamba run -n pyenv pip install flash-attn --no-build-isolation
-RUN micromamba run -n pyenv pip install sageattention
+# SageAttention & FlashAttention
+RUN micromamba run -n pyenv pip install --no-cache-dir flash-attn --no-build-isolation
+RUN micromamba run -n pyenv pip install --no-cache-dir sageattention
 
-# ------------------------------
-# 6. Forge Neo Directory Preparation (Optional)
-# ------------------------------
-# あらかじめディレクトリを用意しておくことで、マウント時の権限エラーを抑制します
-RUN mkdir -p /notebooks /tmp/sd/models
+# Nunchaku のインストール
+RUN micromamba run -n pyenv pip install --no-cache-dir nunchaku --no-build-isolation
 
 # ------------------------------
 # 7. Final Setup
@@ -79,13 +81,13 @@ COPY jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
 WORKDIR /notebooks
 COPY scripts/entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN mkdir -p /tmp/sd/models
 
-# Paperspace IDEの標準ポート
+# Paperspace IDE & WebUI Ports
 EXPOSE 8888 7860
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Paperspaceコンソールの挙動に合わせ、信頼済みヘッダーとオリジン許可を追加
 CMD ["jupyter", "lab", \
      "--allow-root", \
      "--ip=0.0.0.0", \
