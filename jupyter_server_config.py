@@ -1,18 +1,20 @@
-# Jupyter Server configuration for Paperspace Gradient
-# Adds a Launcher entry to start Forge Neo via jupyter-server-proxy.
-
-c = get_config()  # noqa
-
+# jupyter_server_config.py の修正案
 c.ServerProxy.servers = {
-    "forge-neo": {
-        "command": ["/usr/local/bin/start-forge.sh"],
-        "timeout": 60,
-        "launcher_entry": {
-            "title": "Stable Diffusion Forge Neo",
-            "icon_path": "",
-        },
-        "port": 7860,
-        "absolute_url": False,
-        "new_browser_tab": True,
+    'forge': {
+        'command': ['echo', 'Forge Neo should be started from Notebook'],
+        'port': 7860,
+        'absolute_url': False, # これをFalseにする場合はForge側で--subpathが必要
+        'launcher_entry': {
+            'enabled': True,
+            'title': 'Forge Neo',
+        }
+    }
+}
+
+# WebUIの表示がブロックされるのを防ぐための設定を追加
+c.ServerApp.allow_origin = '*'
+c.ServerApp.tornado_settings = {
+    'headers': {
+        'Content-Security-Policy': "frame-ancestors 'self' *"
     }
 }
