@@ -66,19 +66,41 @@ RUN set -eux; \
 
 # ------------------------------
 # Runtime user strategy
-# - Paperspace may run containers with a non-root UID
-# - /notebooks may be mounted with arbitrary ownership
-# We do dynamic UID/GID mapping at container start.
+# - Paperspace runtime may attempt to switch to user "gradient"
+#   BEFORE our entrypoint runs, so we must create it at build time.
+# - /notebooks may be mounted with arbitrary ownership; entrypoint will
+#   try to align permissions when running as root.
 # ------------------------------
 ENV NB_USER=gradient \
     NB_UID=1000 \
     NB_GID=1000
 
-# Precreate common paths (ownership fixed at runtime)
+# Ensure "gradient" user exists in /etc/passwd (Paperspace expectation)
+# Keep it robust if UID/GID 1000 already exists in the base image.
 RUN set -eux; \
-    mkdir -p /notebooks /workspace; \
-    chmod 777 /notebooks /workspace; \
-    mkdir -p /opt/conda
+    if ! getent group "${NB_USER}" >/dev/null 2>&1; then \
+      if getent group "${NB_GID}" >/dev/null 2>&1; then \
+        # GID already taken -> reuse that existing group name
+        EXISTING_GROUP="$(getent group "${NB_GID}" | cut -d: -f1)"; \
+        echo "GID ${NB_GID} already exists as group ${EXISTING_GROUP}, will use it"; \
+      else \
+        groupadd -g "${NB_GID}" "${NB_USER}"; \
+      fi; \
+    fi; \
+    if ! id -u "${NB_USER}" >/dev/null 2>&1; then \
+      if getent passwd "${NB_UID}" >/dev/null 2>&1; then \
+        # UID already taken -> we still must create name "gradient".
+        # Create user with a free UID.
+        useradd -m -s /bin/bash "${NB_USER}"; \
+      else \
+        useradd -m -s /bin/bash -u "${NB_UID}" -g "${NB_GID}" "${NB_USER}"; \
+      fi; \
+    fi
+
+# Precreate common paths (ownership fixed at runtime / mount time)
+RUN set -eux; \
+    mkdir -p /notebooks /workspace /opt/conda; \
+    chmod 777 /notebooks /workspace
 
 # ------------------------------
 # Config + scripts
