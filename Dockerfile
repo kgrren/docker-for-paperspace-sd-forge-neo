@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
-# 3. Micromamba & Python 3.11
+# 3. Micromamba & Python 3.11 + PyYAML (Pre-built)
 # ------------------------------
 RUN set -ex; \
     arch=$(uname -m); \
@@ -38,8 +38,8 @@ RUN set -ex; \
     rm /tmp/micromamba.tar.bz2; \
     mkdir -p $MAMBA_ROOT_PREFIX; \
     micromamba shell init -s bash; \
-    # ここで先に pyyaml と gradient を conda でインストールしてビルドを回避
-    micromamba create -y -n pyenv -c conda-forge python=3.11 pyyaml gradient; \
+    # PyYAML を conda で入れることで、後のビルドエラーを物理的に回避します
+    micromamba create -y -n pyenv -c conda-forge python=3.11 pyyaml; \
     micromamba clean -a -y
 
 # ------------------------------
@@ -50,10 +50,13 @@ RUN micromamba run -n pyenv pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu124
 
 # ------------------------------
-# 5. Jupyter & Other Tools
+# 5. Gradient & Jupyter Tools
 # ------------------------------
-RUN micromamba run -n pyenv pip install --no-cache-dir \
+# --only-binary :all を指定することで、PyYAML等の古いソースビルドを強制的に拒否し、
+# すでに conda で入っている PyYAML を利用させます。
+RUN micromamba run -n pyenv pip install --no-cache-dir --only-binary :all: \
     jupyterlab==3.6.5 notebook jupyter-server-proxy \
+    gradient==2.0.6 \
     xformers==0.0.28.post1 \
     ninja
 
