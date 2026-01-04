@@ -55,7 +55,7 @@ RUN set -eux; \
 # ------------------------------
 # Create a non-root user (Paperspace-friendly)
 # ------------------------------
-RUN set -eux;     groupadd --gid "${NB_GID}" "${NB_USER}";     useradd  --uid "${NB_UID}" --gid "${NB_GID}" -m -s /bin/bash "${NB_USER}";     mkdir -p /notebooks /workspace /opt/forge;     chown -R "${NB_UID}:${NB_GID}" /notebooks /workspace /opt/forge /opt/conda
+RUN set -eux;     groupadd --gid "${NB_GID}" "${NB_USER}" || true;     useradd  --uid "${NB_UID}" --gid "${NB_GID}" -m -s /bin/bash "${NB_USER}" || true;     mkdir -p /notebooks /workspace /opt/forge /opt/conda;     chown -R "${NB_UID}:${NB_GID}" /notebooks /workspace /opt/forge /opt/conda
 
 # ------------------------------
 # Create conda env + Jupyter tooling
