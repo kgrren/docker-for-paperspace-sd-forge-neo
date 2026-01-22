@@ -65,25 +65,42 @@ RUN micromamba run -n pyenv pip install --no-cache-dir --no-deps gradient==2.0.6
     "click<9.0" "requests<3.0" marshmallow attrs
 
 # ------------------------------
-# 6. Optimization & Nunchaku (SVDQ)
+# 6. Optimization & Nunchaku (SVDQ) - FIXED
 # ------------------------------
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
-# 1. ビルドに必要な基本パッケージと依存関係を先に一括インストール
+# 【重要】ビルドの前提となるツール群を確実に最新化します
+# metadata-generation-failed はこれらが古かったり無かったりすると発生します
+RUN micromamba run -n pyenv pip install --no-cache-dir --upgrade \
+    pip setuptools wheel packaging ninja numpy
+
+# 【Flash Attention】
+# ソースからビルドするとメモリ不足や長時間化の原因になるため、
+# Dao-AILab公式のビルド済みWheel (Torch 2.4 / CUDA 12.x / Python 3.11用) を利用します
 RUN micromamba run -n pyenv pip install --no-cache-dir \
-    numpy ninja einops accelerate peft diffusers transformers sentencepiece
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 
-# 2. A4000 (Ampere / SM 8.6) 向けに最適化して各ライブラリをビルド・インストール
-# --no-build-isolation を使うことで、Step 4で入れた Torch 2.4.1 を直接参照させます
-RUN export TORCH_CUDA_ARCH_LIST="8.6" && \
-    micromamba run -n pyenv pip install --no-cache-dir flash-attn --no-build-isolation && \
-    micromamba run -n pyenv pip install --no-cache-dir sageattention && \
+# 【SageAttention】
+# 依存関係として flash-attn を要求しますが、上記で入れたのでスムーズに入ります
+RUN micromamba run -n pyenv pip install --no-cache-dir sageattention
+
+# 【Nunchaku】
+# git+https でのインストールは metadata エラーが出やすいため、
+# 確実に clone してからローカルでビルド・インストールします
+WORKDIR /tmp/nunchaku_build
+RUN git clone https://github.com/mit-han-lab/nunchaku.git . && \
+    # 依存関係だけ先に解消 (Torchの上書きを防ぐため --no-deps で本体を入れる前の準備)
     micromamba run -n pyenv pip install --no-cache-dir \
-    git+https://github.com/mit-han-lab/nunchaku.git --no-deps --no-build-isolation
+    einops accelerate peft diffusers transformers sentencepiece && \
+    # A4000 (SM86) 用にターゲットを絞ってビルド
+    export TORCH_CUDA_ARCH_LIST="8.6" && \
+    micromamba run -n pyenv pip install . --no-deps --no-build-isolation && \
+    # 掃除
+    cd / && rm -rf /tmp/nunchaku_build
 
-# 3. 最後に整合性チェック（ビルド失敗を早期検知するため）
-RUN micromamba run -n pyenv python -c "import torch; import nunchaku; import sageattention; print('Optimization Libs Build Success!')"
+# 動作確認用
+RUN micromamba run -n pyenv python -c "import nunchaku; print('Nunchaku Installed Successfully')"
 
 # ------------------------------
 # 7. Final Setup
