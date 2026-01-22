@@ -70,12 +70,20 @@ RUN micromamba run -n pyenv pip install --no-cache-dir --no-deps gradient==2.0.6
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     mv /root/.local/bin/uv /usr/local/bin/uv
 
-RUN micromamba run -n pyenv pip install --no-cache-dir flash-attn --no-build-isolation
-RUN micromamba run -n pyenv pip install --no-cache-dir sageattention
+# 1. ビルドに必要な基本パッケージと依存関係を先に一括インストール
 RUN micromamba run -n pyenv pip install --no-cache-dir \
-    einops accelerate peft diffusers transformers sentencepiece
-RUN micromamba run -n pyenv pip install --no-cache-dir \
-    git+https://github.com/mit-han-lab/nunchaku.git --no-deps
+    numpy ninja einops accelerate peft diffusers transformers sentencepiece
+
+# 2. A4000 (Ampere / SM 8.6) 向けに最適化して各ライブラリをビルド・インストール
+# --no-build-isolation を使うことで、Step 4で入れた Torch 2.4.1 を直接参照させます
+RUN export TORCH_CUDA_ARCH_LIST="8.6" && \
+    micromamba run -n pyenv pip install --no-cache-dir flash-attn --no-build-isolation && \
+    micromamba run -n pyenv pip install --no-cache-dir sageattention && \
+    micromamba run -n pyenv pip install --no-cache-dir \
+    git+https://github.com/mit-han-lab/nunchaku.git --no-deps --no-build-isolation
+
+# 3. 最後に整合性チェック（ビルド失敗を早期検知するため）
+RUN micromamba run -n pyenv python -c "import torch; import nunchaku; import sageattention; print('Optimization Libs Build Success!')"
 
 # ------------------------------
 # 7. Final Setup
