@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
-# 3. Micromamba & Python 3.11 + PyYAML (最新の6系を事前導入)
+# 3. Micromamba & uv の導入
 # ------------------------------
 RUN set -ex; \
     arch=$(uname -m); \
@@ -38,40 +38,40 @@ RUN set -ex; \
     rm /tmp/micromamba.tar.bz2; \
     mkdir -p $MAMBA_ROOT_PREFIX; \
     micromamba shell init -s bash; \
-    # Python3.11で確実に動く PyYAML 6.0.1 を conda で先に入れます
+    # uvを先に導入して、以降のインストールで活用する
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv; \
+    # Python環境の作成 (PyYAMLの競合回避のため、ここだけはmicromambaで管理)
     micromamba create -y -n pyenv -c conda-forge python=3.11 pyyaml=6.0.1; \
     micromamba clean -a -y
 
 # ------------------------------
-# 4. Install Core ML Libs (PyTorch 2.4.1)
+# 4. uv を使った高速インストール (Core ML & Jupyter)
 # ------------------------------
-RUN micromamba run -n pyenv pip install --no-cache-dir \
+# uv pip install は標準の pip install よりも数倍〜数十倍高速です
+RUN uv pip install --no-cache -p /opt/conda/envs/pyenv/bin/python \
     torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
     --index-url https://download.pytorch.org/whl/cu124
 
-# ------------------------------
-# 5. Gradient & Jupyter Tools (ビルドエラーの核心部)
-# ------------------------------
-# gradient 2.0.6 は PyYAML 5.x を要求してエラーになるため、
-# 1. 依存関係を無視して gradient をインストール (--no-deps)
-# 2. gradient が必要とする他の主要ライブラリを手動で補完
-RUN micromamba run -n pyenv pip install --no-cache-dir \
+RUN uv pip install --no-cache -p /opt/conda/envs/pyenv/bin/python \
     jupyterlab==3.6.5 notebook jupyter-server-proxy \
     xformers==0.0.28.post1 \
     ninja
 
-RUN micromamba run -n pyenv pip install --no-cache-dir --no-deps gradient==2.0.6 && \
-    micromamba run -n pyenv pip install --no-cache-dir \
+# ------------------------------
+# 5. Gradient (依存関係の強制解決)
+# ------------------------------
+# uv でも --no-deps は使用可能です。
+RUN uv pip install --no-cache --no-deps -p /opt/conda/envs/pyenv/bin/python gradient==2.0.6 && \
+    uv pip install --no-cache -p /opt/conda/envs/pyenv/bin/python \
     "click<9.0" "requests<3.0" marshmallow attrs
 
 # ------------------------------
-# 6. Optimization & Nunchaku (SVDQ)
+# 6. Optimization (Flash-Attn 等)
 # ------------------------------
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    mv /root/.local/bin/uv /usr/local/bin/uv
-
-RUN micromamba run -n pyenv pip install --no-cache-dir flash-attn --no-build-isolation
-RUN micromamba run -n pyenv pip install --no-cache-dir sageattention
+# flash-attn などのビルドが必要なものも uv は効率的に処理します
+RUN uv pip install --no-cache -p /opt/conda/envs/pyenv/bin/python flash-attn --no-build-isolation
+RUN uv pip install --no-cache -p /opt/conda/envs/pyenv/bin/python sageattention
 
 # ------------------------------
 # 7. Final Setup
